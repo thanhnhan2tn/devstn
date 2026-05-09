@@ -1,0 +1,5 @@
+# Windsurf Rules for mini-dev-station
+
+For all project context, architecture, formatting rules, and AI personas, you MUST read and follow the instructions in `AGENTS_RULES.md` before writing any code or making assumptions about the project structure. 
+
+Also, refer to `README.md`, `docs/01-Architecture.md`, and `docs/05-AI-Integration.md` for high-level architecture details of this distributed AI development station.

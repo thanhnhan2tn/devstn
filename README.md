@@ -106,14 +106,11 @@ opencode "add error handling" --model deepseek
 
 | Document | Contents |
 |---|---|
-| [`docs/Workflow.md`](docs/Workflow.md) | Two-phase tag workflow, 6-agent chain, multi-repo config |
-| [`docs/Architecture.md`](docs/Architecture.md) | Network topology, trust zones, flow diagram |
-| [`docs/9router-setup.md`](docs/9router-setup.md) | 9router config, providers, combo setup |
-| [`docs/Self_Healing.md`](docs/Self_Healing.md) | Healer agent, retry logic, power failure |
-| [`docs/Tooling_Checklist.md`](docs/Tooling_Checklist.md) | Per-machine prerequisites, env vars |
-| [`docs/DEPLOYMENT_PLAN.md`](docs/DEPLOYMENT_PLAN.md) | Hardware requirements, setup order |
-| [`docs/EXECUTION_GUIDE.md`](docs/EXECUTION_GUIDE.md) | Daily ops, remote control, backup |
-| [`docs/TELEGRAM_SETUP.md`](docs/TELEGRAM_SETUP.md) | Bot creation, commands |
+| [`docs/01-Architecture.md`](docs/01-Architecture.md) | Network topology, hardware, and machine context |
+| [`docs/02-Installation.md`](docs/02-Installation.md) | Hardware requirements, tool checklist, 9router, and Telegram setup |
+| [`docs/03-Operations.md`](docs/03-Operations.md) | Daily ops, remote control, self-healing, and AIOps/GitOps strategy |
+| [`docs/04-Workflow.md`](docs/04-Workflow.md) | Two-phase tag workflow, 6-agent chain, multi-repo config |
+| [`docs/05-AI-Integration.md`](docs/05-AI-Integration.md) | Hybrid Flow and extending pipeline with other AI tools |
 | [`AGENTS_RULES.md`](AGENTS_RULES.md) | Reusable agent rules, skills, prompts |
 | [`projects.yaml`](projects.yaml) | Multi-repo project configuration |
 

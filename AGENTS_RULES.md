@@ -5,6 +5,23 @@
 
 ---
 
+## 0. Project Context & Architecture
+
+**What is this project?**
+The `mini-dev-station` is a 24/7 distributed AI software development station. It converts Linear tickets into GitHub PRs using a tag-based two-phase workflow (`plan` -> `implement`). 
+
+**Architecture Overview:**
+- **Orchestrator (Mac Mini):** Runs Docker, Postgres, n8n, Telegram Bridge, and 9router.
+- **Worker (Mac Studio):** Runs Ollama and the main python `pipeline.py` which executes the agent chain.
+- **Clients:** MacBooks/iPhones for remote triggering and monitoring.
+- **Agent Chain:** PM -> Architect -> Coder -> Reviewer -> Healer -> Release.
+- **Hybrid Flow:** Devin for planning, local Ollama models (Qwen, DeepSeek) for implementation to save costs.
+
+**Before modifying code, ALWAYS remember:**
+This is a complex multi-node setup. Changes to `pipeline.py`, docker-compose files, or `.env` templates must account for Tailscale networking, cross-machine communication, and the multi-agent execution environment.
+
+---
+
 ## 1. Core Security & Workflow Rules
 
 ### Security Rules
