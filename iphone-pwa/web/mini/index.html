@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DevStation Mini</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; background: #0e0e10; color: #e0e0e0; padding: 12px; }
+    h2 { font-size: 1rem; color: #8b8bff; }
+    .s { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.8rem; }
+    .v { font-weight: 700; }
+    .green { color: #4caf50; }
+    .red { color: #f44336; }
+  </style>
+</head>
+<body>
+  <h2>DevStation Mini</h2>
+  <div id="stats"></div>
+  <script src="/mini/app.js"></script>
+  <script>
+    async function refresh() {
+      const m = await loadMetrics();
+      const s = await loadStatus();
+      const stats = [
+        `Success Rate: <span class="v">${m.pipeline_success_rate || '--'}%</span>`,
+        `Active PRs: <span class="v">${m.pipeline_active_prs || '--'}</span>`,
+        `Status: <span class="v ${s ? 'green' : 'red'}">${s ? 'Online' : 'Offline'}</span>`
+      ];
+      document.getElementById('stats').innerHTML = stats.map(t => `<div class="s">${t}</div>`).join('');
+    }
+    setInterval(refresh, 5000);
+    refresh();
+  </script>
+</body>
+</html>

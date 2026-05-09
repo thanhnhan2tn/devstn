@@ -1,0 +1,16 @@
+# AI Dev Station — Project Configuration
+# Maps Linear teams to GitHub repos with trigger labels.
+# Pipeline reads this to route incoming webhooks to the correct project.
+
+projects:
+  default:
+    name: "Default"
+    linear_team_id: "${LINEAR_TEAM_ID}"
+    github_repo: "${GITHUB_REPO}"
+    base_branch: "main"
+    trigger_labels:
+      plan: "plan"
+      implement: "implement"
+      devin_plan: "!plan"
+    agent_engine: "prompt"  # Options: "prompt", "crewai"
+    agent_engine: "prompt"  # Options: "prompt" (default), "crewai"

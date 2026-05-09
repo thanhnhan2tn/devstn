@@ -1,0 +1,26 @@
+# OpenCode configuration for MacBook Air
+# Copy to ~/.config/opencode/config.yaml
+# Edit STUDIO_TAILSCALE_IP and API keys below.
+
+models:
+  studio:
+    provider: openai
+    model: qwen2.5-coder:32b
+    apiBase: http://STUDIO_TAILSCALE_IP:11434/v1
+    apiKey: ollama
+    description: "Studio's Ollama (fast, free, private)"
+
+  deepseek:
+    provider: openai
+    model: deepseek-chat
+    apiKey: ${DEEPSEEK_API_KEY}
+    apiBase: https://api.deepseek.com/v1
+    description: "DeepSeek cloud ($0.14/M input)"
+
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    apiKey: ${CLAUDE_API_KEY}
+    description: "Claude 4.5 Sonnet ($3/M input, last resort)"
+
+defaultModel: studio

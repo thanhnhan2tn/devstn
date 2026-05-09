@@ -1,0 +1,131 @@
+{
+  "name": "Linear → AI Dev Station Pipeline",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "teamId": "={{ $env.LINEAR_TEAM_ID }}",
+        "resources": ["issue", "comment"]
+      },
+      "id": "linear-trigger",
+      "name": "Linear Trigger",
+      "type": "n8n-nodes-base.linearTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "credentials": {
+        "linearApi": {
+          "id": "REPLACE_WITH_LINEAR_API_CREDENTIAL_ID",
+          "name": "Linear API"
+        }
+      },
+      "notes": "Native Linear Trigger node. Listens for issue created/updated events."
+    },
+    {
+      "parameters": {
+"jsCode": "// Extract fields from Linear webhook payload\nconst evt  = $input.first().json || {};\n\n// Only process Issue and Comment events\nif (evt.type && evt.type !== 'Issue' && evt.type !== 'Comment') {\n  return [];\n}\n\nconst d    = evt.data      || {};\nconst team = d.team      || {};\n\n// Labels arrive as an array of {id, name} objects on update events\nconst labels = (d.labels || []).map(l => (l.name || '').toLowerCase());\n\nreturn [{\n  json: {\n    type:         evt.type     || '',\n    action:      evt.action   || '',\n    issue_id:    d.identifier || '',\n    issue_uuid:  d.id         || '',\n    title:       d.title     || '',\n    description: d.body      || d.description || '',\n    url:         d.url       || evt.url || '',\n    priority:    d.priority  ?? null,\n    labels:      labels,\n    team_id:     team.id    || '',\n    team_key:    team.key   || '',\n    received_at: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "parse-linear",
+      "name": "Parse Issue + Labels",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const labels = ($json.labels || []).map(l => typeof l === 'string' ? l.toLowerCase() : ((l.name || '')).toLowerCase());\nconst action = ($json.action || '').toLowerCase();\nconst eventType = ($json.type || '').toLowerCase();\n\n// Handle Comment events - extract issue reference from comment\nif (eventType === 'comment') {\n  const commentBody = $json.description || '';\n  const issueId = $json.issue_id || '';\n  const issueUuid = $json.issue_uuid || '';\n  \n  // Only process if comment is from a user (not bot) and has content\n  if (commentBody && (issueId || issueUuid)) {\n    return [{\n      json: {\n        issue_id: issueId,\n        issue_uuid: issueUuid,\n        title: `Comment on ${issueId}`,\n        description: commentBody,\n        phase: 'implement',\n        repo: 'thanhnhan2tn/mini-dev-station',\n        team_id: $json.team_id || '',\n        labels: ['comment', 'implement'],\n        url: $json.url || ''\n      }\n    }];\n  }\n  return [];\n}\n\n// Skip if no matching action/labels for Issues\nconst shouldProcess = labels.includes('plan') || labels.includes('implement');\nif (!shouldProcess) {\n  return [];\n}\n\n// Default new issues to 'plan' phase unless labeled 'implement'\nlet phase = 'plan';\nif (labels.includes('implement')) {\n  phase = 'implement';\n}\n\nconst esc = s => (s || '').replace(/'/g, \"'\\\\''\");\n\nreturn [{\n  json: {\n    issue_id: $json.issue_id || '',\n    issue_uuid: $json.issue_uuid || '',\n    title: $json.title || '',\n    description: esc($json.description || ''),\n    phase: phase,\n    repo: 'thanhnhan2tn/mini-dev-station',\n    team_id: $json.team_id || '',\n    labels: labels,\n    url: $json.url || ''\n  }\n}];"
+      },
+      "id": "filter-and-build",
+      "name": "Filter & Build Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://100.87.151.9:8001/webhook",
+        "authentication": "none",
+        "sendBody": true,
+        "bodyContentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "issue_id",    "value": "={{ $json.issue_id }}" },
+            { "name": "issue_uuid",  "value": "={{ $json.issue_uuid }}" },
+            { "name": "title",       "value": "={{ $json.title }}" },
+            { "name": "description", "value": "={{ $json.description }}" },
+            { "name": "phase",       "value": "={{ $json.phase }}" },
+            { "name": "repo",        "value": "={{ $json.repo }}" },
+            { "name": "team_id",     "value": "={{ $json.team_id }}" },
+            { "name": "labels",      "value": "={{ $json.labels }}" }
+          ]
+        },
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "call-pipeline",
+      "name": "POST to Pipeline",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 220]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format pipeline result for Linear.\n// Both `plan` and `implement` phases include a `plan_url` referencing\n// docs/plans/{issue_id}.md so the implement step can link back to the\n// plan generated by the prior plan step.\nconst response = $input.first().json || {};\nconst parseData = $('Parse Issue + Labels').first().json;\nconst issueId = parseData?.issue_id || 'Unknown';\nconst phase = response.phase || parseData?.phase || 'N/A';\nconst status = response.status;\n\nconst lines = [];\nif (status === 'ok') {\n  if (phase === 'plan') {\n    lines.push(`🤖 AI Dev Station — *${issueId}* — Plan complete`);\n  } else if (phase === 'implement') {\n    lines.push(`🤖 AI Dev Station — *${issueId}* — Implementation complete`);\n  } else {\n    lines.push(`🤖 AI Dev Station processed *${issueId}*`);\n  }\n  lines.push('');\n  if (response.plan_url) {\n    lines.push(`📋 Plan doc: ${response.plan_url}`);\n  }\n  lines.push(`🔗 PR: ${response.pr_url || 'pending'}`);\n  if (phase === 'implement') {\n    lines.push(`✅ Verdict: ${response.verdict || 'N/A'}`);\n  }\n} else {\n  const errorMsg = response.error || response.message || JSON.stringify(response);\n  lines.push(`❌ AI Dev Station failed for *${issueId}*`);\n  lines.push('');\n  if (response.plan_url) {\n    lines.push(`📋 Plan doc: ${response.plan_url}`);\n  }\n  lines.push(`Error: ${errorMsg}`);\n}\n\nconst body = lines.join('\\n');\n\nreturn { json: { issueUuid: parseData?.issue_uuid, body } };"
+      },
+      "id": "format-result",
+      "name": "Format Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 220]
+    },
+    {
+      "parameters": {
+        "resource": "comment",
+        "operation": "create",
+        "issueId": "={{ $json.issueUuid }}",
+        "body": "={{ $json.body }}"
+      },
+      "id": "linear-comment",
+      "name": "Comment on Linear",
+      "type": "n8n-nodes-base.linear",
+      "typeVersion": 1,
+      "position": [1560, 220],
+      "credentials": {
+        "linearApi": {
+          "id": "REPLACE_WITH_LINEAR_API_CREDENTIAL_ID",
+          "name": "Linear API"
+        }
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Linear Trigger": {
+      "main": [[{ "node": "Parse Issue + Labels", "type": "main", "index": 0 }]]
+    },
+    "Parse Issue + Labels": {
+      "main": [[{ "node": "Filter & Build Payload", "type": "main", "index": 0 }]]
+    },
+    "Filter & Build Payload": {
+      "main": [[{ "node": "POST to Pipeline", "type": "main", "index": 0 }]]
+    },
+    "POST to Pipeline": {
+      "main": [[{ "node": "Format Result", "type": "main", "index": 0 }]]
+    },
+    "Format Result": {
+      "main": [[{ "node": "Comment on Linear", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true
+  },
+  "tags": [
+    { "name": "linear" },
+    { "name": "pipeline" },
+    { "name": "devstation" }
+  ]
+}

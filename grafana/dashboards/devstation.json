@@ -1,0 +1,79 @@
+{
+  "title": "DevStation Overview",
+  "uid": "devstation-overview",
+  "version": 1,
+  "panels": [
+    {
+      "title": "Pipeline Success Rate",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "expr": "sum(rate(pipeline_webhooks_total{status=\"success\"}[5m])) / sum(rate(pipeline_webhooks_total[5m])) * 100",
+        "legendFormat": "Success %"
+      }]
+    },
+    {
+      "title": "Active PRs per Project",
+      "type": "bargauge",
+      "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "expr": "pipeline_active_prs",
+        "legendFormat": "{{project}}"
+      }]
+    },
+    {
+      "title": "Agent Execution Time (95th percentile)",
+      "type": "bargauge",
+      "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum(rate(pipeline_agent_seconds_bucket[5m])) by (le, agent))",
+        "legendFormat": "{{agent}}"
+      }]
+    },
+    {
+      "title": "Review Verdicts",
+      "type": "piechart",
+      "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
+      "targets": [{
+        "expr": "sum(pipeline_review_verdict_total) by (verdict)",
+        "legendFormat": "{{verdict}}"
+      }]
+    },
+    {
+      "title": "Webhooks by Phase",
+      "type": "timeseries",
+      "gridPos": {"x": 0, "y": 4, "w": 12, "h": 6},
+      "targets": [{
+        "expr": "sum(rate(pipeline_webhooks_total[5m])) by (project, phase)",
+        "legendFormat": "{{project}} / {{phase}}"
+      }]
+    },
+    {
+      "title": "LLM Provider Usage",
+      "type": "timeseries",
+      "gridPos": {"x": 12, "y": 4, "w": 12, "h": 6},
+      "targets": [{
+        "expr": "sum(rate(pipeline_llm_calls_total[5m])) by (provider)",
+        "legendFormat": "{{provider}}"
+      }]
+    },
+    {
+      "title": "Healer Retries",
+      "type": "stat",
+      "gridPos": {"x": 0, "y": 10, "w": 4, "h": 3},
+      "targets": [{
+        "expr": "sum(increase(pipeline_healer_retries_total[24h]))",
+        "legendFormat": "Total retries (24h)"
+      }]
+    },
+    {
+      "title": "System Health",
+      "type": "table",
+      "gridPos": {"x": 4, "y": 10, "w": 20, "h": 3},
+      "targets": [{
+        "expr": "pipeline_health{job=\"pipeline\"}",
+        "legendFormat": "{{service}}"
+      }]
+    }
+  ]
+}

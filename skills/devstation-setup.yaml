@@ -1,0 +1,238 @@
+name: devstation-setup
+description: Complete setup and configuration of the mini-dev-station (Mac Mini orchestrator)
+author: AI Dev Station
+version: 2.0.0
+
+prerequisites:
+  - macOS 12+
+  - Homebrew installed
+  - GitHub CLI (gh) authenticated
+  - Docker Desktop (or Colima)
+  - Tailscale account
+
+steps:
+
+  setup-script:
+    description: Run devstation.sh setup
+    command: bash bin/devstation.sh --node mini setup
+    known_bugs:
+      - bug: "parse_args() last line returns non-zero, causing set -e to exit"
+        fix: "Append `; true` after `[ -z \"$ACTION\" ] && { usage; exit 1; }` in bin/devstation.sh"
+      - bug: "run() uses eval `\"$*\"` which breaks with spaces/special chars"
+        fix: "Replace `eval \"$*\"` with `\"$@\"` in the run() function"
+
+  docker-desktop-headless:
+    description: Configure Docker Desktop for headless, low-resource operation
+    config_file: "~/Library/Group Containers/group.com.docker/settings.json"
+    settings:
+      autoStart: true
+      openUIOnStartupDisabled: true
+      memoryMiB: 2048
+      swapMiB: 512
+      cpus: 2
+      extensionsEnabled: false
+      kubernetesEnabled: false
+      useResourceSaver: true
+      useBackgroundIndexing: false
+    restart_command: osascript -e 'quit app "Docker"' && sleep 2 && open -a Docker
+
+  tailscale-cli:
+    description: Set up tailscale CLI from the app bundle (avoid brew formula which builds from source)
+    steps:
+      - brew install --cask tailscale-app
+      - brew uninstall tailscale 2>/dev/null || true
+      - create wrapper at /usr/local/bin/tailscale:
+          content: |
+            #!/bin/bash
+            exec /Applications/Tailscale.app/Contents/MacOS/Tailscale "$@"
+      - chmod +x /usr/local/bin/tailscale
+    note: "The brew formula tailscale builds from source (slow). The cask already contains the CLI."
+
+  env-configuration:
+    description: Required .env variables for studio node (pipeline + opencode)
+    required_vars:
+      TAILSCALE_IP: "Tailscale IP for port binding"
+      GITHUB_TOKEN: "GitHub token with repo access"
+      NVIDIA_API_KEY: "NVIDIA NIM API key"
+      MINIMAX_API_KEY: "MiniMax Coding Plan API key"
+
+  services:
+    description: Docker services for studio node
+    compose_file: compose/studio.yml
+    services:
+      - name: dispatcher
+        port: 8001
+        command: python pipeline.py --dispatcher --port 8001
+        depends_on: [opencode]
+      - name: worker  
+        command: python pipeline.py --worker
+        depends_on: [opencode]
+      - name: opencode
+        port: 4096
+        command: opencode serve --port 4096 --hostname 0.0.0.0
+        model_config: |
+          # Auth is injected at runtime from .env:
+          NVIDIA_API_KEY -> auth.json key "nvidia"
+          MINIMAX_API_KEY -> auth.json key "minimax-coding-plan"
+      LINEAR_API_KEY: "Linear personal API key"
+      LINEAR_TEAM_ID: "Linear team UUID"
+      GITHUB_TOKEN: "GitHub PAT with repo scope"
+      WORKSPACE_DIR: "Pipeline workspace directory (e.g. /tmp/devstation-workspace)"
+    optional_vars:
+      NVIDIA_API_KEY: "NVIDIA build.nvidia.com API key"
+      NVIDIA_MODEL: "Model name (default: nvidia/llama-3.1-nemotron-70b-instruct)"
+      CLAUDE_API_KEY: "Claude API key (premium tier)"
+      OPENAI_API_KEY: "OpenAI API key (complex tier)"
+      GITHUB_REPO: "Default GitHub repo for the pipeline"
+      STUDIO_TAILSCALE_IP: "Set to TAILSCALE_IP if no Studio node"
+
+  compose-gotchas:
+    - issue: "Tailscale must be connected before Docker starts"
+      symptom: "Error: can't assign requested address on port binding"
+      fix: "Start Tailscale first, then Docker services"
+    - issue: "TAILSCALE_IP changes on Tailscale re-auth"
+      fix: "Update .env with new IP, then `docker compose up -d`"
+    - issue: "ai-router volume mount overwrites litellm entrypoint"
+      symptom: "Error: exec: docker/prod_entrypoint.sh not found"
+      fix: "Mount config file individually: `../ai-router/config.yaml:/app/config.yaml:ro` (not `../ai-router:/app:ro`)"
+    - issue: "LiteLLM (ai-router) fails to start with merged_lifespan errors"
+      symptom: "Application startup failed. Exiting. ValueError: Invalid routing_strategy OR Prisma P1012"
+      root_cause: "ghcr.io/berriai/litellm:main-stable has breaking upstream changes (routing_strategy renamed, Wolfi Linux incompatible with Prisma)"
+      fix: "Replace with light-router (see steps.light-router) — removes 3.71 GB of Docker images"
+
+  light-router:
+    description: Lightweight OpenAI-compatible LLM proxy (replaces broken LiteLLM)
+    files:
+      - light-router/proxy.py: "60-line FastAPI proxy forwarding to DeepSeek/NVIDIA"
+      - light-router/Dockerfile: "python:3.11-slim with fastapi/uvicorn/httpx"
+    compose_config:
+studio-env:
+    description: .env file configuration for studio pipeline
+    template: |
+      # === Core ===
+      GITHUB_TOKEN=ghp_...
+      TAILSCALE_IP=100.x.x.x
+      
+      # === LLM: NVIDIA (primary) ===
+      NVIDIA_API_KEY=nvapi-...
+      
+      # === LLM: MiniMax (fallback) ===
+      MINIMAX_API_KEY=sk-cp-...
+      
+      # === Pipeline Workspace ===
+      WORKSPACE_DIR=/tmp/devstation-workspace
+        light-router:
+          build: ../light-router
+          restart: unless-stopped
+          environment:
+            DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY}"
+            DEEPSEEK_BASE_URL: "${DEEPSEEK_BASE_URL}"
+            NVIDIA_API_KEY: "${NVIDIA_API_KEY}"
+          ports: ["${TAILSCALE_IP}:4000:4000"]
+    endpoints:
+      healthz: "GET /healthz → {\"status\":\"ok\"}"
+      v1/models: "GET /v1/models → list of available models"
+      chat: "POST /v1/chat/completions → OpenAI-compatible chat"
+
+  n8n-setup:
+    description: Configure n8n workflow automation
+    steps:
+      - url: "http://${TAILSCALE_IP}:5678"
+      - action: "Create admin account in n8n UI"
+      - action: "Import workflow from linear-pipeline/linear_to_opencode.json"
+      - action: "Create Linear credential in n8n (API key from LINEAR_API_KEY)"
+      - action: "Update workflow credential references (replace REPLACE_WITH_LINEAR_API_CREDENTIAL_ID with actual ID)"
+      - action: "Set STUDIO_TAILSCALE_IP env var in n8n workflow (or use Mini's IP for cloud-only)"
+    notes:
+      - "n8n sends POST to http://${STUDIO_TAILSCALE_IP}:8001/webhook (the pipeline)"
+      - "Pipeline timeout: 600s"
+      - "IF node (array contains) may not work in all n8n versions — use Code node instead"
+      - "$env.GITHUB_REPO in Code node may be denied — hardcode repo name instead"
+
+  linear-workflow:
+    description: Configure Linear webhook integration
+    steps:
+      - "In n8n, replace Linear Trigger node with Webhook node if URL customization needed"
+      - "Create webhook at https://n8n.devstn.xyz/webhook/linear-issue"
+      - "In Linear → Settings → API → Webhooks, add the webhook URL"
+    workflow_file: "linear-pipeline/linear_to_opencode.json"
+    workflow_nodes:
+      - "Linear Trigger or Webhook → Parse Issue + Labels → Filter & Build Payload → POST to Pipeline → Format Result → Comment on Linear"
+
+  telegram-bridge:
+    description: Telegram bot for notifications and remote commands
+    notify_endpoint: "POST http://${TAILSCALE_IP}:7700/notify {message: string}"
+    command_polling: "Uses Telegram getUpdates polling (no public URL needed)"
+    commands:
+      /status: "Show station status"
+      /pause: "Pause pipeline"
+      /resume: "Resume pipeline"
+      /approve: "Approve pending review"
+      /reject: "Reject pending review"
+      /llm studio|cloud|auto: "Set LLM mode"
+    note: "Bot uses polling mode by default. To get your chat ID: message the bot, then visit https://api.telegram.org/bot<TOKEN>/getUpdates"
+
+  projects-yaml:
+    description: Map Linear teams to GitHub repos
+    file_location: projects.yaml
+    template: |
+      projects:
+        default:
+          name: "Default"
+          linear_team_id: "${LINEAR_TEAM_ID}"
+          github_repo: "your-org/your-repo"  # hardcode don't use env vars with defaults
+          base_branch: "main"
+          trigger_labels:
+            plan: "plan"
+            implement: "implement"
+    note: "Avoid using env vars with :-default syntax in github_repo — Python's expandvars doesn't support it"
+
+  pipeline-deployment:
+    description: Deploy the 6-agent pipeline as a background service
+    steps:
+      - "Install deps: python3 -m venv /tmp/pipeline-venv && source /tmp/pipeline-venv/bin/activate && pip install httpx pyyaml uvicorn fastapi python-dotenv prometheus-client"
+      - "Create wrapper at /usr/local/bin/devstation-pipeline"
+      - "Start: nohup /usr/local/bin/devstation-pipeline > .run/pipeline.log 2>&1 &"
+    known_bugs:
+      - bug: "Pipeline f-string format error: Invalid format specifier"
+        symptom: "Pipeline returns error 'Invalid format specifier X for object of type str'"
+        root_cause: "In Python 3.14, f-string expressions with `:` inside nested `{...}` in LLM prompt templates cause parse errors"
+        fix: "1) Escape inner `{` as `{{` in f-string prompt templates. 2) Pre-compute complex format strings outside the f-string (e.g., files_md = ... then use {files_md})"
+      - bug: "Pipeline 'str' object has no attribute 'get'"
+        symptom: "Pipeline error when formatting plan_md with spec.get('files', [])"
+        root_cause: "LLM returned flat string list `['file1.py']` instead of dict list `[{'path': 'file1.py'}]`"
+        fix: "Add isinstance check: `f.get('path', str(f)) if isinstance(f, dict) else str(f)`"
+      - bug: "Pipeline 'All LLM providers failed'"
+        symptom: "All LLM calls fail after fallback chain exhaustion"
+        root_cause: "DEEPSEEK_MODEL not set (defaulted to deepseek-flash which 400s)"
+        fix: "Set DEEPSEEK_MODEL=deepseek-chat in .env"
+      - bug: "git clone exit status 128"
+        symptom: "Pipeline fails when cloning repo"
+        root_cause: "WORKSPACE_DIR=/Volumes/work doesn't exist on this machine"
+        fix: "Set WORKSPACE_DIR=/tmp/devstation-workspace in .env and mkdir -p"
+    llm_config:
+      studio-coder: "Ollama local (not available in cloud-only mode)"
+      deepseek: "DeepSeek V4 Flash via api.deepseek.com (default)"
+      openai-codex: "OpenAI o3-mini (requires OPENAI_API_KEY)"
+      claude-premium: "Claude Sonnet 4.5 (requires CLAUDE_API_KEY)"
+    env_loading: "Use `set -a; source .env; set +a` instead of `export $(grep -v '^#' .env | xargs)` to avoid shell escaping issues"
+
+  pipeline-wrapper:
+    description: Pipeline startup script at bin/pipeline-wrapper.sh
+    content: |
+      #!/bin/bash
+      set -euo pipefail
+      cd "$(dirname "$0")/.."
+      source /tmp/pipeline-venv/bin/activate
+      set -a; source .env; set +a
+      exec python3 pipeline.py --serve --port 8001
+    note: "Always clear __pycache__ after changing pipeline.py: `find . -name \"__pycache__\" -type d -exec rm -rf {} +`"
+
+testing:
+  verify_services: docker ps --format "table {{.Names}}\t{{.Status}}"
+  test_telegram: 'curl -X POST http://${TAILSCALE_IP}:7700/notify -H "Content-Type: application/json" -d "{\"message\": \"✅ Setup test\"}"'
+  test_light_router: 'curl http://${TAILSCALE_IP}:4000/v1/models'
+  test_deepseek: 'curl -X POST https://api.deepseek.com/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" -d "{\"model\":\"deepseek-chat\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":5}"'
+  test_n8n: 'curl -fsS http://${TAILSCALE_IP}:5678/healthz'
+  test_pipeline: 'curl -s http://127.0.0.1:8001/healthz'
+  test_grafana: 'curl -sI http://${TAILSCALE_IP}:3000'

@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0e0e10" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <title>DevStation</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro', sans-serif;
+           background: #0e0e10; color: #e0e0e0; padding: 16px; }
+    h1 { font-size: 1.3rem; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    h1 .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .status-dot.online { background: #4caf50; }
+    .status-dot.offline { background: #f44336; }
+    .card { background: #1a1a2e; border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+    .card h2 { font-size: 0.95rem; color: #8b8bff; margin-bottom: 6px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat { text-align: center; padding: 10px; background: #16213e; border-radius: 8px; }
+    .stat .value { font-size: 1.5rem; font-weight: 700; }
+    .stat .label { font-size: 0.7rem; color: #888; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 0.7rem; font-weight: 600; }
+    .badge-approve { background: #1b5e20; color: #a5d6a7; }
+    .badge-changes { background: #e65100; color: #ffcc80; }
+    .badge-blocked { background: #b71c1c; color: #ef9a9a; }
+    #tasks { min-height: 100px; }
+    .loading { text-align: center; color: #666; padding: 30px; font-size: 0.85rem; }
+    .task-item { display: flex; justify-content: space-between; align-items: center;
+                 padding: 8px 0; border-bottom: 1px solid #222; font-size: 0.85rem; }
+    .task-item:last-child { border-bottom: none; }
+    .task-title { flex: 1; }
+    .phase-tag { font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; background: #333; margin-left: 6px; }
+    .btn { width: 100%; padding: 12px; border: none; border-radius: 8px;
+           font-size: 0.95rem; font-weight: 600; cursor: pointer; margin-top: 6px; }
+    .btn-approve { background: #2d5; color: #000; }
+    .btn-reject { background: #d55; color: #fff; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .node-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 0.8rem; }
+    .node-name { color: #aaa; }
+    .node-status { font-weight: 600; }
+    .node-status.up { color: #4caf50; }
+    .node-status.down { color: #f44336; }
+  </style>
+</head>
+<body>
+  <h1><span class="status-dot" id="statusDot"></span>AI Dev Station</h1>
+
+  <div class="card" id="statsCard">
+    <h2>Pipeline</h2>
+    <div class="grid">
+      <div class="stat"><div class="value" id="successRate">--</div><div class="label">Success Rate</div></div>
+      <div class="stat"><div class="value" id="activePrs">--</div><div class="label">Active PRs</div></div>
+    </div>
+  </div>
+
+  <div class="card" id="nodesCard">
+    <h2>Nodes</h2>
+    <div id="nodesList"></div>
+  </div>
+
+  <div class="card" id="tasksCard">
+    <h2>Active Tasks</h2>
+    <div id="tasks"><div class="loading">Loading...</div></div>
+  </div>
+
+  <div class="card" id="reviewCard" style="display:none">
+    <h2>Pending Review</h2>
+    <div id="reviewContent"></div>
+    <button class="btn btn-approve" id="btnApprove">Approve</button>
+    <button class="btn btn-reject" id="btnReject">Reject</button>
+  </div>
+
+  <script>
+    const PIPELINE_URL = `http://${location.hostname}:8001`;
+
+    function statusDot(online) {
+      document.getElementById('statusDot').className = 'status-dot ' + (online ? 'online' : 'offline');
+    }
+
+    async function loadMetrics() {
+      try {
+        const r = await fetch(`${PIPELINE_URL}/metrics`);
+        if (!r.ok) throw new Error('fetch failed');
+        const txt = await r.text();
+        const lines = txt.split('\n');
+
+        const get = (prefix) => {
+          const l = lines.find(ln => ln.startsWith(prefix));
+          return l ? l.split(' ')[1] : '--';
+        };
+
+        document.getElementById('successRate').textContent = get('pipeline_success_rate') + '%';
+        document.getElementById('activePrs').textContent = get('pipeline_active_prs') || '--';
+        statusDot(true);
+      } catch {
+        statusDot(false);
+        document.getElementById('successRate').textContent = '--';
+        document.getElementById('activePrs').textContent = '--';
+      }
+    }
+
+    async function loadTasks() {
+      try {
+        const r = await fetch(`${PIPELINE_URL}/healthz`);
+        const d = await r.json();
+        const tasks = d.tasks || [];
+        const html = tasks.length === 0
+          ? '<div class="loading">No active tasks</div>'
+          : tasks.map(t =>
+              `<div class="task-item">
+                <span class="task-title">${t.issue_id}: ${t.title}<span class="phase-tag">${t.phase}</span></span>
+                <span class="badge badge-${t.status}">${t.status}</span>
+              </div>`
+            ).join('');
+        document.getElementById('tasks').innerHTML = html;
+
+        // Nodes
+        const nodes = d.nodes || [];
+        document.getElementById('nodesList').innerHTML = nodes.map(n =>
+          `<div class="node-row">
+            <span class="node-name">${n.name}</span>
+            <span class="node-status ${n.status}">${n.status}</span>
+          </div>`
+        ).join('');
+      } catch {
+        document.getElementById('tasks').innerHTML = '<div class="loading">Offline</div>';
+      }
+    }
+
+    async function loadReview() {
+      try {
+        const r = await fetch(`${PIPELINE_URL}/pending-reviews`);
+        if (!r.ok) throw new Error('none');
+        const reviews = await r.json();
+        if (reviews.length === 0) {
+          document.getElementById('reviewCard').style.display = 'none';
+          return;
+        }
+        document.getElementById('reviewCard').style.display = 'block';
+        const rev = reviews[0];
+        document.getElementById('reviewContent').innerHTML =
+          `<div class="task-item"><span class="task-title">${rev.issue_id}</span>
+           <span class="badge badge-${rev.verdict}">${rev.verdict}</span></div>
+           <div style="font-size:0.75rem;color:#aaa;margin-top:4px">${rev.summary}</div>`;
+
+        document.getElementById('btnApprove').onclick = () => approveReject(rev.id, 'approve');
+        document.getElementById('btnReject').onclick = () => approveReject(rev.id, 'reject');
+      } catch {
+        document.getElementById('reviewCard').style.display = 'none';
+      }
+    }
+
+    async function approveReject(id, action) {
+      try {
+        await fetch(`${PIPELINE_URL}/review/${id}/${action}`, {method: 'POST'});
+        loadReview();
+      } catch (e) {
+        alert('Failed: ' + e.message);
+      }
+    }
+
+    setInterval(() => { loadMetrics(); loadTasks(); loadReview(); }, 5000);
+    loadMetrics(); loadTasks(); loadReview();
+  </script>
+</body>
+</html>

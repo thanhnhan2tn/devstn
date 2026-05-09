@@ -1,0 +1,135 @@
+name: devstation-mini
+
+# =============================================================================
+# CRITICAL: Data Persistence Rules
+# =============================================================================
+# The 9router db.json contains ALL provider connections and API keys.
+# This is stored at: ./9router-config/db.json (bind mount)
+# Named volume: 9router_data (docker managed)
+#
+# ⚠️  NEVER run: docker compose down (it removes volumes!)
+# ⚠️  NEVER run: docker rm -f <container> without checking volumes exist
+# ✅  ALWAYS use: docker compose restart 9router
+# ✅  ALWAYS use: docker compose stop 9router && docker compose start 9router
+#
+# To backup 9router config:
+#   docker exec devstation-mini-9router-1 cat /home/bun/.9router/db.json > backup.json
+# =============================================================================
+
+volumes:
+  pg_data:
+  redis_data:
+  n8n_data:
+  grafana_data:
+  prom_data:
+  9router_data:
+
+networks:
+  tailscale:
+    driver: bridge
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: devstation
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: devstation
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro
+    networks: [tailscale]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devstation"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks: [tailscale]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    environment:
+      N8N_PORT: 5678
+      N8N_PROTOCOL: http
+      N8N_HOST: ${TAILSCALE_IP}
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: devstation
+      DB_POSTGRESDB_USER: devstation
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      STUDIO_TAILSCALE_IP: ${STUDIO_TAILSCALE_IP:-${TAILSCALE_IP}}
+      GENERIC_TIMEZONE: Asia/Ho_Chi_Minh
+    volumes:
+      - n8n_data:/home/node/.n8n
+    ports:
+      - "5678:5678"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [tailscale]
+
+  telegram-bridge:
+    build: ../telegram-bridge
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      REDIS_URL: redis://redis:6379/0
+      STUDIO_TAILSCALE_IP: mini2015.tail16dec4.ts.net
+    ports:
+      - "7700:7700"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [tailscale]
+
+  grafana:
+    image: grafana/grafana:latest
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_INSTALL_PLUGINS: ""
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    networks: [tailscale]
+
+  prometheus:
+    image: prom/prometheus:latest
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - prom_data:/prometheus
+      - ../prometheus:/etc/prometheus:ro
+    ports:
+      - "9090:9090"
+    networks: [tailscale]
+
+  iphone-pwa:
+    build: ../iphone-pwa
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    networks: [tailscale]

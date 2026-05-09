@@ -1,0 +1,192 @@
+# AI Dev Station - Studio Pipeline Docker Compose
+# 
+# Services:
+#   - dispatcher: Pipeline orchestrator (HTTP server on port 8001)
+#   - worker: Pipeline worker for task processing
+#   - opencode: LLM service (NVIDIA Llama, MiniMax) on port 4096
+#
+# Usage:
+#   docker compose -f compose/studio.yml --env-file .env up -d
+#
+# Required .env variables:
+#   - GITHUB_TOKEN (GitHub personal access token)
+#   - TAILSCALE_IP (Tailscale IP for port binding)
+#   - NVIDIA_API_KEY (NVIDIA NIM API key)
+#   - MINIMAX_API_KEY (MiniMax Coding Plan API key)
+#
+name: devstation-studio
+
+volumes:
+  workspaces:
+  router_data:
+  opencode_data:
+  opencode_config:
+  opencode_auth:
+  9router_data:
+
+networks:
+  tailscale:
+    driver: bridge
+
+x-pipeline-env: &pipeline-env
+  GITHUB_TOKEN: ${GITHUB_TOKEN}
+  GITHUB_REPO: ${GITHUB_REPO:-thanhnhan2tn/mini-dev-station}
+  TAILSCALE_IP: ${TAILSCALE_IP}
+  MINI_SERVER_IP: ${MINI_SERVER_IP:-}
+  WORKSPACE_DIR: /tmp/devstation-workspace
+  OLLAMA_URL: http://127.0.0.1:11434
+  LIGHT_ROUTER_URL: http://9router:20128
+  USE_DIRECT_API: "false"
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+  DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com/v1}
+  DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-v4-flash}
+  MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+  MINIMAX_BASE_URL: ${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}
+  MINIMAX_MODEL: ${MINIMAX_MODEL:-MiniMax-M2.7}
+  NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+  NVIDIA_BASE_URL: ${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
+  NVIDIA_MODEL: ${NVIDIA_MODEL:-nvidia/llama-3.1-nemotron-70b-instruct}
+  NODE_NAME: studio
+  PROJECTS_CONFIG: /app/projects.yaml
+  OPENAI_API_KEY: ${OPENAI_API_KEY}
+  OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+  OPENAI_MODEL: ${OPENAI_MODEL:-o3-mini}
+  CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+  TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+
+services:
+  dispatcher:
+    image: python:3.11-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: >
+      sh -c "
+        apt-get update -qq && apt-get install -y -qq git docker.io >/dev/null 2>&1 &&
+        git config --global user.name 'AI Dev Station (Dispatcher)' &&
+        git config --global user.email 'devstation@localhost' &&
+        pip install -q httpx python-dotenv fastapi uvicorn prometheus-client pyyaml requests &&
+        python pipeline.py --dispatcher --port 8001
+      "
+    environment: *pipeline-env
+    volumes:
+      - ../pipeline.py:/app/pipeline.py:ro
+      - ../projects.yaml:/app/projects.yaml:ro
+      - ../templates:/app/templates:ro
+      - workspaces:/tmp/devstation-workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8001:8001"
+    networks: [tailscale]
+    depends_on:
+      - opencode
+
+  worker:
+    image: python:3.11-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: >
+      sh -c "
+        apt-get update -qq && apt-get install -y -qq git docker.io >/dev/null 2>&1 &&
+        git config --global user.name 'AI Dev Station (Worker)' &&
+        git config --global user.email 'devstation@localhost' &&
+        pip install -q httpx python-dotenv fastapi uvicorn prometheus-client pyyaml requests &&
+        python pipeline.py --worker
+      "
+    environment: *pipeline-env
+    volumes:
+      - ../pipeline.py:/app/pipeline.py:ro
+      - ../projects.yaml:/app/projects.yaml:ro
+      - ../templates:/app/templates:ro
+      - workspaces:/tmp/devstation-workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [tailscale]
+    depends_on:
+      - 9router
+
+  worker-2:
+    image: python:3.11-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: >
+      sh -c "
+        apt-get update -qq && apt-get install -y -qq git docker.io >/dev/null 2>&1 &&
+        git config --global user.name 'AI Dev Station (Worker 2)' &&
+        git config --global user.email 'devstation@localhost' &&
+        pip install -q httpx python-dotenv fastapi uvicorn prometheus-client pyyaml requests &&
+        python pipeline.py --worker
+      "
+    environment: *pipeline-env
+    volumes:
+      - ../pipeline.py:/app/pipeline.py:ro
+      - ../projects.yaml:/app/projects.yaml:ro
+      - ../templates:/app/templates:ro
+      - workspaces:/tmp/devstation-workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [tailscale]
+    depends_on:
+      - 9router
+
+  worker-3:
+    image: python:3.11-slim
+    restart: unless-stopped
+    working_dir: /app
+    command: >
+      sh -c "
+        apt-get update -qq && apt-get install -y -qq git docker.io >/dev/null 2>&1 &&
+        git config --global user.name 'AI Dev Station (Worker 3)' &&
+        git config --global user.email 'devstation@localhost' &&
+        pip install -q httpx python-dotenv fastapi uvicorn prometheus-client pyyaml requests &&
+        python pipeline.py --worker
+      "
+    environment: *pipeline-env
+    volumes:
+      - ../pipeline.py:/app/pipeline.py:ro
+      - ../projects.yaml:/app/projects.yaml:ro
+      - ../templates:/app/templates:ro
+      - workspaces:/tmp/devstation-workspace
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [tailscale]
+    depends_on:
+      - 9router
+
+  9router:
+    image: 9router/9router:latest
+    restart: unless-stopped
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      MINIMAX_API_KEY: ${MINIMAX_API_KEY}
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY}
+    volumes:
+      - ../9router-config:/home/bun/.9router
+    ports:
+      - "20128:20128"
+    networks: [tailscale]
+
+  opencode:
+    image: node:20-alpine
+    restart: unless-stopped
+    environment:
+      SHELL: /bin/sh
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      WORKSPACE_DIR: /tmp/devstation-workspace
+      OPENCODE_DATA_DIR: /data
+    command: >
+      sh -c "
+        mkdir -p /data &&
+        mkdir -p /root/.local/share/opencode &&
+        mkdir -p /root/.config/opencode &&
+        apk add --no-cache curl >/dev/null 2>&1 &&
+        curl -fsSL https://opencode.ai/install | sh &&
+        cp /root/.opencode/bin/opencode /usr/local/bin/opencode &&
+        opencode serve --port 4096 --hostname 0.0.0.0
+      "
+    volumes:
+      - workspaces:/tmp/devstation-workspace
+      - opencode_data:/data
+      - opencode_config:/root/.config/opencode
+      - opencode_auth:/root/.local/share/opencode
+    ports:
+      - "4096:4096"
+    networks: [tailscale]

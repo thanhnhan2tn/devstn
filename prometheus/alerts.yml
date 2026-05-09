@@ -1,0 +1,28 @@
+groups:
+  - name: pipeline
+    interval: 30s
+    rules:
+      - alert: PipelineHighFailureRate
+        expr: rate(pipeline_webhooks_total{status="failed"}[5m]) / rate(pipeline_webhooks_total[5m]) > 0.5
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pipeline failure rate > 50%"
+          description: "Pipeline failure rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - alert: LLMAllProvidersDown
+        expr: pipeline_llm_provider_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "All LLM providers unreachable"
+
+      - alert: HealerExhausted
+        expr: pipeline_healer_retries_total > 3
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Healer agent exhausted retries for a task"
